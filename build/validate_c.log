@@ -1,0 +1,11 @@
+circuit: 2053 neurons, pruned to 83791 edges
+
+=== C. sub-network vs whole 138k-neuron brain ===
+  loading the full connectome...
+  15091983 edges, 60 MB
+  loom_right       active  317/ 277  Jaccard 0.747  rate r 0.7400  total-rate sub/138k 1.317
+    (whole brain: 1035 neurons active overall)
+  loom_left        active  305/ 280  Jaccard 0.784  rate r 0.7439  total-rate sub/138k 1.383
+    (whole brain: 821 neurons active overall)
+  landmark_front   active  166/ 227  Jaccard 0.701  rate r 0.8828  total-rate sub/138k 1.258
+    (whole brain: 182 neurons active overall)

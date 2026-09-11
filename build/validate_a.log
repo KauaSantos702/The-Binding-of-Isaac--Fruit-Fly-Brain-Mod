@@ -1,0 +1,18 @@
+circuit: 2053 neurons, pruned to 83791 edges
+
+=== A. Lua engine vs numpy reference (same network) ===
+running the Lua harness...
+    loom_right       8 trials, 308 neurons active
+    loom_left        8 trials, 295 neurons active
+    loom_front       8 trials, 290 neurons active
+    landmark_front   8 trials, 277 neurons active
+    landmark_right   8 trials, 232 neurons active
+    flow_yaw         8 trials, 49 neurons active
+    wrote build/lua_rates.csv
+  loom_right       active  300/ 301  Jaccard 0.997  rate r 0.9917  total-rate lua/py 0.992
+  loom_left        active  290/ 289  Jaccard 0.997  rate r 0.9944  total-rate lua/py 0.983
+  loom_front       active  281/ 284  Jaccard 0.982  rate r 0.9907  total-rate lua/py 0.985
+  landmark_front   active  263/ 264  Jaccard 0.981  rate r 0.9983  total-rate lua/py 1.003
+  landmark_right   active  216/ 214  Jaccard 0.991  rate r 0.9981  total-rate lua/py 0.994
+  flow_yaw         active   46/  46  Jaccard 1.000  rate r 0.9906  total-rate lua/py 0.997
+  mean Jaccard 0.991, mean rate correlation 0.9940

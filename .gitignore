@@ -1,0 +1,7 @@
+.venv/
+fly-brain/
+tools/
+data/*.tsv
+build/*.json
+build/*.npz
+__pycache__/

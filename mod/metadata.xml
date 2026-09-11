@@ -1,0 +1,10 @@
+<metadata>
+	<name>Connectome — the fly with a real fly's brain</name>
+	<directory>fly-brain-connectome</directory>
+	<id></id>
+	<description>Adds a familiar fly whose flight is computed, every frame, by a leaky integrate-and-fire simulation of 2053 real Drosophila neurons and 83791 real synapses taken from the FlyWire whole-brain connectome.</description>
+	<version>1.0</version>
+	<visibility></visibility>
+	<tag id="Items"/>
+	<tag id="Familiars"/>
+</metadata>

@@ -1,0 +1,7 @@
+<entities anm2root="gfx/" version="5">
+	<entity id="3" variant="7831" name="Connectome Fly" anm2path="familiar_flybrain.anm2"
+		baseHP="0" friction="1" numGridCollisionPoints="12" collisionDamage="0"
+		collisionMass="3" collisionRadius="7" shadowSize="0" stageHP="0">
+		<gibs amount="0" blood="0" bone="0" eye="0" gut="0" large="0"/>
+	</entity>
+</entities>

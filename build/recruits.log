@@ -1,0 +1,12 @@
+loading the full connectome (15.1M edges)...
+  loom_right: 1135 neurons active in the whole brain
+  loom_left: 813 neurons active in the whole brain
+  loom_front: 673 neurons active in the whole brain
+  landmark_front: 185 neurons active in the whole brain
+  landmark_right: 204 neurons active in the whole brain
+  flow_yaw: 259 neurons active in the whole brain
+
+900 recruits (>= 1.0 Hz in the whole brain, not already in the circuit)
+  super classes: {'central': 688, 'descending': 100, 'visual_projection': 41, 'optic': 40, 'visual_centrifugal': 30, 'motor': 1}
+  top types    : {'PVLP008': 19, 'PVLP097': 12, 'PVLP007': 11, 'PVLP111': 10, 'LMa2': 10, 'PLP172': 9, 'CB1920': 9, 'PVLP004,PVLP005': 9, 'CB0732': 8, 'Li24': 7, 'PVLP133': 7, 'PVLP006': 6, 'LT51': 6, 'CB1255': 5, 'CB0813': 5}
+wrote build/recruits.json

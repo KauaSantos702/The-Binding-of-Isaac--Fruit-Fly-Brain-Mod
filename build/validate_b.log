@@ -1,0 +1,10 @@
+circuit: 2053 neurons, pruned to 83791 edges
+
+=== B. pruned vs unpruned connectivity ===
+  116078 -> 83791 edges
+  loom_right       active  288/ 289  Jaccard 0.990  rate r 0.9999  total-rate pruned/full 0.999
+  loom_left        active  284/ 284  Jaccard 1.000  rate r 1.0000  total-rate pruned/full 1.000
+  loom_front       active  268/ 269  Jaccard 0.996  rate r 1.0000  total-rate pruned/full 1.001
+  landmark_front   active  229/ 231  Jaccard 0.991  rate r 0.9999  total-rate pruned/full 1.002
+  landmark_right   active  220/ 222  Jaccard 0.991  rate r 0.9999  total-rate pruned/full 1.001
+  flow_yaw         active   48/  48  Jaccard 1.000  rate r 0.9999  total-rate pruned/full 0.997

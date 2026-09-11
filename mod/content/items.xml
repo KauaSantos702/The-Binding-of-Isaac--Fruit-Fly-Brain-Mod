@@ -1,0 +1,17 @@
+<items gfxroot="gfx/items/" version="1">
+	<passive
+		name="Connectome"
+		description="It really thinks"
+		gfx="collectibles/collectibles_flybrain.png"
+		cache="familiars"
+		quality="3"
+		hearts="0"
+		maxhearts="0"
+		soulhearts="0"
+		blackhearts="0"
+		keys="0"
+		coins="0"
+		bombs="0"
+		tags="fly summonable"
+	/>
+</items>
