@@ -36,6 +36,13 @@ Agent.defaults = {
   escapeThreshold = 22.0,   -- Hz, mean over the escape descending neurons
   escapeBoost     = 5.5,
 
+  -- approach deceleration, keyed to how much of the visual field the target
+  -- fills: full speed below landStartDeg, settled by landFullDeg
+  landStartDeg    = 30.0,
+  landFullDeg     = 80.0,
+  landConeDeg     = 55.0,   -- must be roughly ahead to settle on
+  landStop        = 0.96,   -- how much of the speed a full landing removes
+
   loomPeak        = 165.0,
   loomSigma       = 34.0,
   objectPeak      = 90.0,
@@ -96,10 +103,14 @@ end
 ---------------------------------------------------------------------------
 
 -- Compress a looming stimulus into a firing rate.  LC4 responds to angular
--- size and to the rate at which it grows; the saturating form keeps a very
--- close object from driving the whole population into its refractory ceiling.
-local function loomRate(cfg, angSize, closing, weight)
-  local drive = weight * (0.35 * angSize + 0.11 * closing * angSize / 12.0)
+-- velocity and LPLC2 to expansion, so the motion term is what really drives
+-- escape; `sizeGain` scales the standing-size term, which is our own
+-- approximation and is set to zero for things that are merely large and still.
+-- The saturating form keeps a very close object from pinning the whole
+-- population at its refractory ceiling.
+local function loomRate(cfg, angSize, closing, weight, sizeGain)
+  sizeGain = sizeGain or 0.35
+  local drive = weight * (sizeGain * angSize + 0.11 * closing * angSize / 12.0)
   return cfg.loomPeak * (drive / (drive + 6.0))
 end
 
@@ -115,13 +126,40 @@ function Agent:sense(p)
     if hz > drive[ch] then drive[ch] = hz end
   end
 
+  -- Tracked targets go to LC9/LC10, the object-position cells.  This is the
+  -- one channel measured to produce a *directed* turn toward a thing rather
+  -- than away from it (tools/behaviour.lua, experiment 5) -- LC10a is the
+  -- pathway a male fly tracks a female with.  Several targets can be present
+  -- at once and they simply compete for the population.
+  local primaryAz = p.landmarkAz
+  self.trackSize, self.trackAz = 0.0, 0.0
+  if p.tracked then
+    local best = -1.0
+    for i = 1, #p.tracked do
+      local t = p.tracked[i]
+      local sz = t.angSize or 14.0
+      local hz = cfg.barPeak * (t.weight or 1.0) * (sz / (sz + 12.0))
+      if hz > 2.0 then
+        s:stimulate(b, "bar", t.az, cfg.barSigma, hz)
+        note("bar", hz)
+        if not primaryAz then primaryAz = t.az end
+      end
+      -- remember the target filling the most of the visual field, for the
+      -- approach deceleration in act()
+      local salience = sz * (t.weight or 1.0)
+      if salience > best then
+        best = salience
+        self.trackSize, self.trackAz = sz, t.az
+      end
+    end
+  end
   if p.landmarkAz then
     s:stimulate(b, "bar", p.landmarkAz, cfg.barSigma, cfg.barPeak)
     note("bar", cfg.barPeak)
-    if cfg.landmarkPeak > 0.0 then
-      s:stimulate(b, "landmark", p.landmarkAz, cfg.landmarkSigma, cfg.landmarkPeak)
-      note("landmark", cfg.landmarkPeak)
-    end
+  end
+  if primaryAz and cfg.landmarkPeak > 0.0 then
+    s:stimulate(b, "landmark", primaryAz, cfg.landmarkSigma, cfg.landmarkPeak)
+    note("landmark", cfg.landmarkPeak)
   end
 
   local n = 0
@@ -139,7 +177,7 @@ function Agent:sense(p)
   if p.threats then
     for i = 1, #p.threats do
       local t = p.threats[i]
-      local hz = loomRate(cfg, t.angSize, t.closing or 0.0, t.weight or 1.0)
+      local hz = loomRate(cfg, t.angSize, t.closing or 0.0, t.weight or 1.0, t.sizeGain)
       if hz > 2.0 then
         loomAt(t.az, hz)
         s:stimulate(b, "object", t.az, cfg.objectSigma, hz * 0.45)
@@ -199,6 +237,32 @@ function Agent:act()
   if self.escaping then
     speed = speed + cfg.escapeBoost * (out.escape - cfg.escapeThreshold) / 40.0
   end
+
+  -- Approach deceleration.  A landing fly slows in proportion to how fast the
+  -- target is expanding across its retina, which is why it arrives at a
+  -- surface at nearly zero speed instead of hitting it (Borst 1986; van
+  -- Breugel & Dickinson 2012).  We use the target's angular size as the proxy.
+  --
+  -- This does not come out of the connectome -- it belongs with the ventral
+  -- nerve cord assumptions listed in motor.lua.  Without it the fly has a
+  -- floor speed and can only circle a thing it is trying to settle on.
+  local land = 0.0
+  if self.trackSize > cfg.landStartDeg then
+    land = (self.trackSize - cfg.landStartDeg)
+           / (cfg.landFullDeg - cfg.landStartDeg)
+    if land > 1.0 then land = 1.0 end
+    -- only if it is roughly in front: a fly does not land on what is beside it
+    local off = self.trackAz
+    if off < 0 then off = -off end
+    if off > cfg.landConeDeg then land = 0.0 end
+    -- and never while frightened
+    local fear = out.escape / cfg.escapeThreshold
+    if fear > 1.0 then fear = 1.0 end
+    land = land * (1.0 - fear)
+  end
+  self.landing = land
+  speed = speed * (1.0 - land * cfg.landStop)
+
   if speed > cfg.maxSpeed then speed = cfg.maxSpeed end
   self.speed = speed
 

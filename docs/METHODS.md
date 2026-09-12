@@ -209,6 +209,49 @@ in the console switches it on.
 
 ---
 
+## 6b. Smell and heat do not work either, and that one is measurable
+
+Poop is the single most appropriate object in this game for a fly brain, so the
+olfactory pathway was the obvious next sense to add: the connectome has 2275
+olfactory receptor neurons across 53 glomeruli, 687 projection neurons, and
+1183 lateral horn neurons, with known chemical identities — DM1 (Or42b) and DM4
+(Or59b) for vinegar and fermentation, DA2 (Or56a) for geosmin, V for CO₂.
+
+`pipeline/probe_new_senses.py` drove those receptors in the whole 138 639-neuron
+model before any of it was extracted. The result was that **every stimulus
+produced the same answer**: vinegar, geosmin, antennal thermoreceptors, and
+one antenna versus two all activated ~10 000 neurons and the same descending
+neurons in the same order (DNb05 ≈ 320 Hz, DNge037 ≈ 145 Hz, DNg35 ≈ 137 Hz).
+
+`pipeline/probe_olfaction_gain.py` then swept the drive rate to rule out simply
+over-driving it. Cosine similarity between the descending responses of
+different stimuli:
+
+| drive | neurons active | vinegar vs geosmin | vinegar vs heat | both antennae vs right only |
+|---|---|---|---|---|
+| 10 Hz | 10 870 | 0.994 | 0.988 | 0.994 |
+| 25 Hz | 9 664 | 0.993 | 0.999 | 0.994 |
+| 50 Hz | 10 801 | 0.995 | 0.994 | 0.999 |
+| 100 Hz | 10 357 | 0.994 | 0.994 | 0.994 |
+| 150 Hz | 9 710 | 0.991 | 0.998 | 0.999 |
+
+Non-specific at every drive level, and no less active at 10 Hz than at 150 Hz —
+so this is a fixed brain-wide state that any antennal input triggers, not a
+graded response.
+
+There is an independent quantitative check that this is the model failing
+rather than the analysis: **73% of Kenyon cells fire** (3783 of 5177). Real
+Kenyon-cell odour responses are famously sparse, on the order of 5–10% of the
+population, which is the whole point of that layer. A model firing three
+quarters of them has lost the inhibitory gain control the antennal lobe and
+mushroom body depend on.
+
+Contrast the visual protocols in the same model: `loom_right` activates 1135
+neurons and `loom_left` 813 — different from each other, and lateralised.
+
+So the mod has no sense of smell and no sense of heat. Poop is instead seen,
+through the object-tracking channel below, and fire is avoided visually.
+
 ## 7. What the fly actually does, and where it comes from
 
 `tools/behaviour.lua` runs the mod's own agent code in a headless arena.
@@ -238,6 +281,66 @@ actually have. None of this is scripted; it falls out of the connectome.
 contain a real turn, the fly covers the whole arena, and wall looming drives
 escape on 71 frames.
 
+**Turning toward something, not just away from it.** Escape was easy to
+demonstrate; approach is a different computation and had to be measured
+separately. A single silent, motionless target was presented at six bearings
+on each candidate channel:
+
+| bearing | on the small-object channel (LC11/17/18) | on the tracking channel (LC9/LC10) |
+|---|---|---|
+| −110° | +34° | **−90°** |
+| −60° | +43° | **−147°** |
+| −25° | +27° | **−61°** |
+| +25° | +4° | **+79°** |
+| +60° | +15° | **+85°** |
+| +110° | +6° | **+95°** |
+
+The small-object channel produces a constant rightward bias unrelated to where
+the target is. The tracking channel follows the bearing at all six — the fly
+turns toward the target. That is the right cell type for it: LC10a is the
+pathway a male fly tracks a female with during courtship. The mod puts the
+player, and poop, on that channel.
+
+**The player, still versus moving.** LC4 is tuned to angular velocity and
+LPLC2 to expansion, so something merely large and motionless produces neither
+and should not frighten a fly — which is why a fly will settle on a still
+animal and bolt the instant it moves. The mod therefore puts the player on the
+tracking channel always and on the looming channel only in proportion to his
+speed. Measured over 70 frames with the player 150 px away:
+
+| player speed | distance, start → end | frames fleeing | peak escape DN |
+|---|---|---|---|
+| 0 px/frame | 150 → 24 px | 0 / 70 | 4.9 Hz |
+| 1.5 px/frame | 148 → 39 px | 0 / 70 | 18.2 Hz |
+| 5 px/frame | 145 → 5 px | 54 / 70 | 44.6 Hz |
+
+Stand still and she closes on you; charge and the escape neurons take over.
+(The final distance in the last row is an artefact of the test arena, where the
+player homes on the fly perfectly and there is nowhere to go.)
+
+**Telling a fly enemy from a monster.** Isaac is full of fly enemies, and a
+real fly has no way to recognise one: LC4 answers to angular velocity and
+LPLC2 to expansion, and neither is a classifier. The separation that does
+exist is at the level of the cell types — small, slow objects are handled by
+LC11/LC17/LC18, which drive no escape at all. So the mod routes every hostile
+entity by its *stimulus* rather than its entity type, blending between the two
+populations on whichever is larger: angular size, or expansion rate.
+
+| presented at the same bearing | angular size | fraction on the looming channel | peak escape DN |
+|---|---|---|---|
+| Attack Fly, 130 px away | 5.3° | 0.15 | **8.8 Hz** |
+| Attack Fly, 36 px away | 18.9° | 1.00 | 40.8 Hz |
+| a tear, 130 px away, closing at 12 px/frame | 4.4° | **1.00** | 22.1 Hz |
+| Gaper, 130 px away | 11.4° | 0.45 | 24.2 Hz |
+| Gaper, 50 px away | 29.1° | 1.00 | 46.1 Hz |
+| Monstro, 130 px away | 19.2° | 1.00 | 39.6 Hz |
+
+A distant fly enemy lands below the 22 Hz escape threshold and is ignored; the
+same fly up close startles her, as it should. The third row is the case that
+constrains the rule: a tear is *smaller* than a fly enemy, so splitting on size
+alone would have stopped her dodging bullets. The expansion term is what keeps
+it a threat, which is exactly what LPLC2 is tuned to.
+
 ### What is *not* from the connectome
 
 FlyWire contains the brain, not the ventral nerve cord, so how a descending
@@ -250,9 +353,26 @@ are asserted from the behavioural literature, and they are listed in
   (Namiki et al. 2018).
 - DNp09 stops forward walking; DNp01 (the giant fibre) drives takeoff.
 
+One more sensorimotor rule sits outside the connectome, in `agent.lua`:
+**approach deceleration**. A landing fly slows in proportion to how fast the
+target is expanding across its retina, which is how it arrives at a surface at
+nearly zero speed rather than colliding with it (Borst 1986; van Breugel &
+Dickinson 2012). The mod uses the target's angular size as the proxy, gated so
+it only applies to something roughly ahead and never while the escape neurons
+are firing.
+
+Without it the fly has a floor speed and can only circle a thing it is trying
+to settle on. With it, and the player standing still:
+
+| | before | after |
+|---|---|---|
+| distance reached | 24 px | 17 px |
+| speed over the last 15 frames | 2.60 px/frame | **0.57 px/frame** |
+
 Also not biology: the leash that keeps the familiar near the player, and the
 contact-damage rule. Both are game constraints and are marked as such in the
-source.
+source. The leash is keyed to distance alone, so a fly that has settled on
+something nearby is left alone.
 
 ---
 

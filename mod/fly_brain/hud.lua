@@ -31,6 +31,45 @@ function Hud.text(str, x, y, r, g, b, a)
   Isaac.RenderText(str, x, y, r or 0.75, g or 0.95, b or 0.9, a or 1.0)
 end
 
+-- Small text, the size the game's own HUD counters use.
+function Hud.stext(str, x, y, scale, col, a)
+  col = col or { 0.8, 0.85, 0.9 }
+  Isaac.RenderScaledText(str, x, y, scale or 0.5, scale or 0.5,
+    col[1], col[2], col[3], a or 1.0)
+end
+
+---------------------------------------------------------------------------
+-- thin bars, for the compact readout
+---------------------------------------------------------------------------
+
+-- A slim filled bar with a dark track and a soft edge highlight.
+function Hud.thinBar(x, y, w, h, frac, col, a)
+  if frac < 0 then frac = 0 elseif frac > 1 then frac = 1 end
+  a = a or 1.0
+  Hud.rect(x, y, w, h, 0.06, 0.06, 0.09, 0.55 * a)
+  local fw = w * frac
+  if fw >= 1 then
+    Hud.rect(x, y, fw, h, col[1], col[2], col[3], 0.9 * a)
+    Hud.rect(x, y, fw, 1, col[1] * 0.4 + 0.6, col[2] * 0.4 + 0.6,
+      col[3] * 0.4 + 0.6, 0.55 * a)
+  end
+end
+
+-- A slim bar that grows out from the centre, for signed quantities.
+function Hud.thinBiBar(x, y, w, h, value, colL, colR, a)
+  if value < -1 then value = -1 elseif value > 1 then value = 1 end
+  a = a or 1.0
+  Hud.rect(x, y, w, h, 0.06, 0.06, 0.09, 0.55 * a)
+  local mid = x + w * 0.5
+  local half = w * 0.5 * value
+  if half < 0 then
+    Hud.rect(mid + half, y, -half, h, colL[1], colL[2], colL[3], 0.9 * a)
+  elseif half > 0 then
+    Hud.rect(mid, y, half, h, colR[1], colR[2], colR[3], 0.9 * a)
+  end
+  Hud.rect(mid, y - 1, 1, h + 2, 0.85, 0.88, 0.92, 0.5 * a)
+end
+
 ---------------------------------------------------------------------------
 -- a labelled 0..100 bar
 ---------------------------------------------------------------------------

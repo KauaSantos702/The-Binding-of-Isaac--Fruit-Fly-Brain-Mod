@@ -1,0 +1,45 @@
+loading the full connectome (15.1M edges)...
+
+=== odour_attract: driving 199 receptors at 150 Hz ===
+    10447 neurons active in the whole brain
+    ORN (receptors)            940/ 2275 active, mean  24.30 Hz, max  166.0 Hz
+    TRN/HRN (thermo/hygro)      87/  103 active, mean  84.55 Hz, max  245.0 Hz
+    PN (antennal lobe out)     550/  687 active, mean 122.41 Hz, max  494.0 Hz
+    lateral horn               822/ 1183 active, mean  60.52 Hz, max  441.0 Hz
+    Kenyon cells              3783/ 5177 active, mean  54.82 Hz, max  151.5 Hz
+    descending                 187/ 1299 active, mean   5.89 Hz, max  324.0 Hz
+    top descending neurons: DNb05[l] 324Hz, DNb05[r] 282Hz, DNge037[r] 145Hz, DNge037[l] 141Hz, DNg35[r] 137Hz, DNp32[l] 134Hz, DNp31[r] 119Hz, DNg56[r] 118Hz, DNbe007[l] 112Hz, DNbe007[r] 110Hz
+    DN left 5.50 Hz   DN right 5.98 Hz   asymmetry +0.48 Hz
+
+=== odour_right: driving 96 receptors at 150 Hz ===
+    10205 neurons active in the whole brain
+    ORN (receptors)            821/ 2275 active, mean  15.86 Hz, max  161.5 Hz
+    TRN/HRN (thermo/hygro)      86/  103 active, mean  81.14 Hz, max  236.0 Hz
+    PN (antennal lobe out)     547/  687 active, mean 115.15 Hz, max  411.0 Hz
+    lateral horn               820/ 1183 active, mean  56.56 Hz, max  369.0 Hz
+    Kenyon cells              3759/ 5177 active, mean  49.24 Hz, max  163.0 Hz
+    descending                 188/ 1299 active, mean   5.85 Hz, max  319.0 Hz
+    top descending neurons: DNb05[l] 319Hz, DNb05[r] 280Hz, DNge037[r] 146Hz, DNge037[l] 146Hz, DNg35[r] 138Hz, DNp32[l] 124Hz, DNp31[r] 118Hz, DNg56[r] 115Hz, DNpe002[l] 114Hz, DNbe007[l] 114Hz
+    DN left 5.53 Hz   DN right 5.88 Hz   asymmetry +0.36 Hz
+
+=== odour_averse: driving 106 receptors at 150 Hz ===
+    10249 neurons active in the whole brain
+    ORN (receptors)            825/ 2275 active, mean  16.55 Hz, max  161.0 Hz
+    TRN/HRN (thermo/hygro)      89/  103 active, mean  83.49 Hz, max  209.5 Hz
+    PN (antennal lobe out)     544/  687 active, mean 113.91 Hz, max  407.0 Hz
+    lateral horn               833/ 1183 active, mean  56.20 Hz, max  380.0 Hz
+    Kenyon cells              3662/ 5177 active, mean  46.82 Hz, max  161.0 Hz
+    descending                 187/ 1299 active, mean   5.75 Hz, max  319.0 Hz
+    top descending neurons: DNb05[l] 319Hz, DNb05[r] 281Hz, DNge037[r] 142Hz, DNge037[l] 140Hz, DNg35[r] 134Hz, DNp32[l] 130Hz, DNp31[r] 116Hz, DNg56[r] 116Hz, DNp05[r] 116Hz, DNc01[r] 115Hz
+    DN left 5.57 Hz   DN right 5.65 Hz   asymmetry +0.08 Hz
+
+=== heat: driving 29 receptors at 150 Hz ===
+    9520 neurons active in the whole brain
+    ORN (receptors)            508/ 2275 active, mean   8.20 Hz, max  146.5 Hz
+    TRN/HRN (thermo/hygro)      87/  103 active, mean 103.27 Hz, max  280.5 Hz
+    PN (antennal lobe out)     544/  687 active, mean 109.87 Hz, max  331.5 Hz
+    lateral horn               788/ 1183 active, mean  53.18 Hz, max  329.0 Hz
+    Kenyon cells              3522/ 5177 active, mean  43.24 Hz, max  159.5 Hz
+    descending                 190/ 1299 active, mean   5.74 Hz, max  323.5 Hz
+    top descending neurons: DNb05[l] 324Hz, DNb05[r] 298Hz, DNge037[r] 143Hz, DNge037[l] 142Hz, DNg35[r] 136Hz, DNp32[l] 124Hz, DNp05[r] 122Hz, DNg56[r] 121Hz, DNp31[r] 121Hz, DNp31[l] 114Hz
+    DN left 5.53 Hz   DN right 5.68 Hz   asymmetry +0.16 Hz

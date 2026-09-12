@@ -1,0 +1,11 @@
+loading the full connectome...
+
+rate   whole-brain active   DN active   vinegar-vs-geosmin   vinegar-vs-heat   both-vs-right-antenna   DN L/R asymmetry
+   10             10870         191              0.9945            0.9882                 0.9940   +0.243 Hz
+   25              9664         186              0.9927            0.9990                 0.9935   +0.055 Hz
+   50             10801         185              0.9953            0.9942                 0.9986   +0.150 Hz
+  100             10357         189              0.9942            0.9943                 0.9941   +0.407 Hz
+  150              9710         184              0.9911            0.9980                 0.9985   +0.053 Hz
+
+  similarity 1.000 = the brain gives the same motor output whatever it smells
+  a usable olfactory sense needs these to fall clearly below 1
