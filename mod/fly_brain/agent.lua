@@ -7,11 +7,17 @@
   (tools/behaviour.lua) that checks the fly actually behaves like a fly.
 
   percepts = {
-    landmarkAz = <deg or nil>,          -- the player, relative to the heading
-    threats  = { {az=, angSize=, closing=, weight=}, ... },
+    tracked  = { {az=, angSize=, weight=}, ... },   -- things worth going to
+    threats  = { {az=, angSize=, closing=, weight=, sizeGain=}, ... },
     objects  = { {az=, angSize=}, ... },
-    walls    = { <az>, ... },           -- directions that are blocked
+    walls    = { {az=, dist=, closing=}, ... },     -- surfaces ahead
   }
+
+  `closing` means different things on purpose.  For a threat it is how fast the
+  *object itself* is coming -- the fly's own movement is not in it, because an
+  animal that flies towards something is not being attacked by it.  For a wall
+  it is how fast *she* is closing on the surface, because there the expansion
+  really is hers to make, and that is the cue a fly avoids obstacles with.
   All azimuths are in degrees relative to the fly's current heading, positive
   to the fly's right.
 ]]
@@ -22,7 +28,8 @@
 local Agent = {}
 Agent.__index = Agent
 
-local cos, sin, exp, pi = math.cos, math.sin, math.exp, math.pi
+local cos, sin, exp, pi, atan = math.cos, math.sin, math.exp, math.pi, math.atan
+local DEG = 180.0 / pi
 
 Agent.defaults = {
   stepsPerFrame   = 33,     -- 1 ms per step: brain time == game time at 30 fps
@@ -49,8 +56,27 @@ Agent.defaults = {
   objectSigma     = 40.0,
   barPeak         = 55.0,   -- LC9/LC10: object position, reaches the premotor side
   barSigma        = 30.0,
-  wallPeak        = 95.0,
-  wallSigma       = 30.0,
+
+  -- A surface she is flying into.  Unlike an object, the expansion here really
+  -- is produced by her own movement, and that is the stimulus a fly avoids
+  -- obstacles with -- so self-motion belongs in this one and only this one.
+  -- Driven purely by expansion (sizeGain 0), so a wall she is not approaching
+  -- is not frightening.
+  --
+  -- Three things keep it smooth.  The angular size comes from the measured
+  -- distance, so there is no step.  `wallFade` takes the drive to zero at the
+  -- edge of sensing range, so a probe coming into range does not arrive at
+  -- full strength.  And the drive is weighted by how head-on the surface is,
+  -- because obstacle avoidance is driven by expansion in front of the animal,
+  -- not beside it.
+  wallWeight      = 2.0,
+  wallSpan        = 30.0,   -- px; half-width of the stretch treated as one object
+  wallRange       = 110.0,  -- px; beyond this a surface is not sensed at all
+  wallHeadOn      = 0.55,   -- how much a surface off to the side still counts
+  -- A small standing-size term, so a surface close alongside her still
+  -- registers when she is flying parallel to it and nothing is expanding.
+  -- Far below the 0.35 an object gets: a wall is scenery, not a predator.
+  wallSizeGain    = 0.04,
 
   -- MeTu -> TuBu -> ER -> EPG, the sky-compass pathway.  Off by default.
   -- The pathway is real and measurably azimuth-selective as far as the ring
@@ -78,6 +104,9 @@ function Agent.new(BrainClass, Sensory, Motor, net, meta, cfg, seed)
   self.yaw = 0.0
   self.steps = self.cfg.stepsPerFrame
   self.out = nil
+  -- defined before the first act(), so anything reading the fly's velocity on
+  -- frame one gets a number rather than nil
+  self.vx, self.vy = 0.0, 0.0
 
   -- peak drive requested on each sensory channel this frame, in Hz: what the
   -- fly is being shown, as opposed to what it decides
@@ -200,8 +229,23 @@ function Agent:sense(p)
 
   if p.walls then
     for i = 1, #p.walls do
-      loomAt(p.walls[i], cfg.wallPeak)
-      n = n + 1
+      local w = p.walls[i]
+      local d = w.dist
+      if d and d > 1.0 and d < cfg.wallRange then
+        local angSize = 2.0 * atan(cfg.wallSpan / d) * DEG
+        -- fade to nothing at the edge of range, so nothing arrives in a step
+        local fade = 1.0 - (d / cfg.wallRange) ^ 2
+        -- and count a surface less the further off to the side it lies
+        local head = cos(w.az * pi / 180.0)
+        if head < 0.0 then head = 0.0 end
+        head = cfg.wallHeadOn + (1.0 - cfg.wallHeadOn) * head
+        local hz = loomRate(cfg, angSize, w.closing,
+                            cfg.wallWeight * fade * head, cfg.wallSizeGain)
+        if hz > 2.0 then
+          loomAt(w.az, hz)
+          n = n + 1
+        end
+      end
     end
   end
 

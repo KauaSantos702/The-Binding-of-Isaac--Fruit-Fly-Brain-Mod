@@ -341,6 +341,66 @@ constrains the rule: a tear is *smaller* than a fly enemy, so splitting on size
 alone would have stopped her dodging bullets. The expansion term is what keeps
 it a threat, which is exactly what LPLC2 is tuned to.
 
+**Two ways the fly frightened herself, and how they were found.** Playing the
+mod turned up fear spiking sharply while the player stood perfectly still.
+`tools/diagnose_idle_fear.lua` rebuilds main.lua's percepts offline and logs
+every frame; it found two independent causes and ruled out a third.
+
+*She was her own threat.* The closing speed fed to the looming channel was the
+**relative** velocity, which contains the fly's own:
+
+```
+closing = ((flyVelocity - objectVelocity) . towardsObject) / distance
+```
+
+With the player standing still that reduces to her own speed towards him, so
+flying over to land counted as being rushed. Peak fear 13.8 Hz with the term
+in, 1.2 Hz without. The fix is to measure how fast the *object* is coming and
+leave her own flight out of it, which is what the optic-flow channel exists for
+in the animal: telling self-motion apart from the world's. A large enemy
+standing still is still frightening, through its angular size.
+
+*Walls arrived in a step.* Wall sensing was a single yes/no test 46 px ahead
+that put 95 Hz into the looming channel the frame a probe crossed the boundary
+-- about what a large enemy pressed against her produces. Hovering near a wall
+and turning slightly flipped it on and off: peak 33.2 Hz, **a +22.9 Hz jump in
+one frame**, and escape triggered on 4 frames of 90 while nothing in the room
+moved. Each probe now measures how far the surface actually is and the drive
+follows from that distance and her speed towards it, faded to nothing at the
+edge of sensing range and weighted by how head-on the surface lies.
+
+Self-motion stays in this one, deliberately: flying at a surface really does
+make it expand, and that is the cue a fly avoids obstacles with.
+
+*Not the cause:* the adaptive step budget shrinks the rate estimator's window
+when a frame runs long, which looked like it could make the read-out jump.
+Measured across 33, 24, 16 and 8 steps per frame the mean came out 5.1, 4.8,
+4.9 and 4.6 Hz -- unbiased, so it was ruled out rather than guessed at.
+
+| standing perfectly still | before | after |
+|---|---|---|
+| peak fear, mid-room | 13.8 Hz | **1.2 Hz** |
+| peak fear, hugging a wall | 33.2 Hz | **4.4 Hz** |
+| biggest one-frame jump | +22.9 Hz | **+1.6 Hz** |
+| frames in escape, of 90 | 4 | **0** |
+
+**Why the test suite missed both.** Experiment 6 modelled the startle term as
+`playerSpeed + 0.35 * playerSpeed`, which is zero for a motionless player -- it
+validated a simplification rather than the code -- and experiment 3 had walls
+but only ever counted turns, never looked at fear. Both now build percepts the
+way main.lua does, and experiment 8 asserts that a still player and a nearby
+wall leave her calm.
+
+**And what the fix cost.** The 95 Hz slam was also what kept her wandering:
+removing it dropped her from 147 turning frames of 239 to 55. Restoring it
+properly meant a stronger but still graded wall, a small standing-size term so
+a surface alongside her registers when nothing is expanding, and dropping a
+bisection refinement that had been added to chase a jump which turned out to be
+the test's own warm-up transient. Free flight now runs at 149 turning frames
+and 10.2 of the room's 24 cells, averaged over four seeds -- the single-seed
+check it replaces was a lottery, and the turn count it used had been calibrated
+against the bug.
+
 ### What is *not* from the connectome
 
 FlyWire contains the brain, not the ventral nerve cord, so how a descending

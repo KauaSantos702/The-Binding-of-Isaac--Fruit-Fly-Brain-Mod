@@ -44,7 +44,12 @@ local TEST_MODE = true
 local CFG = {
   budgetMs       = 6.0,    -- simulation time allowed per fly per frame
   visionRange    = 260.0,  -- px; beyond this an entity is not resolved
-  wallProbe      = 46.0,   -- px ahead to test for walls
+  -- Wall sensing: which directions to probe relative to her heading, and how
+  -- finely.  How that distance becomes a stimulus lives in agent.lua with the
+  -- rest of the sensory rules.
+  wallProbes     = { 0, 35, -35, 70, -70 },
+  wallRange      = 110.0,
+  wallSteps      = 8,
   leashRadius    = 190.0,  -- px from the player before we pull the fly back
   leashRamp      = 130.0,  -- px over which the pull reaches full strength
   leashSpeed     = 3.2,    -- a game constraint, not biology -- see README
@@ -186,9 +191,15 @@ local function buildPercepts(fly, agent, player)
     local pSize = 2.0 * atan(14.0 / math.max(pdist, 10.0)) * DEG
     tracked[#tracked + 1] = { az = pAz, angSize = pSize, weight = 1.0 }
 
+    -- How fast *he* is coming, not how fast the two are converging.  Using the
+    -- relative velocity made the fly her own threat: flying towards a
+    -- motionless player counted as the player rushing her, and fear sat at
+    -- 13.8 Hz instead of 1.2 (tools/diagnose_idle_fear.lua).  An animal that
+    -- chooses to approach something is not being attacked by it -- which is
+    -- what the fly's own optic-flow channel is for, telling self-motion apart
+    -- from the world's.
     local pv = player.Velocity
-    local closing = -((pv.X - fly.Velocity.X) * dp.X
-                    + (pv.Y - fly.Velocity.Y) * dp.Y) / pdist
+    local closing = -(pv.X * dp.X + pv.Y * dp.Y) / pdist
     if closing < 0.0 then closing = 0.0 end
     local startle = closing + 0.35 * pv:Length()
     if startle > 0.4 then
@@ -242,12 +253,14 @@ local function buildPercepts(fly, agent, player)
         if isObject then
           objects[#objects + 1] = { az = az, angSize = angSize }
         else
-          -- how fast the object is closing, along the line of sight
+          -- How fast the object itself is coming, along the line of sight.
+          -- The fly's own velocity is deliberately not in here: see the note
+          -- on the player above.  A large enemy standing still is still
+          -- frightening, but through its angular size, not through her flight.
           local v = ent.Velocity
           local closing = 0.0
           if v then
-            closing = -((v.X - fly.Velocity.X) * d.X
-                      + (v.Y - fly.Velocity.Y) * d.Y) / dist
+            closing = -(v.X * d.X + v.Y * d.Y) / dist
           end
           if closing < 0.0 then closing = 0.0 end
 
@@ -277,12 +290,32 @@ local function buildPercepts(fly, agent, player)
     end
   end
 
-  -- Walls loom too; a fly that cannot see them grinds along them.
-  for _, probe in ipairs({ 0, 40, -40 }) do
+  -- Walls loom too, and this is the one place the fly's own movement is the
+  -- stimulus: flying at a surface really does make it expand, and that is how
+  -- a fly avoids obstacles.  Previously this was a single yes/no test at a
+  -- fixed distance, which slammed the looming channel with 95 Hz the frame a
+  -- probe crossed the boundary -- a +22.9 Hz jump in fear while nothing in the
+  -- room had moved.  Now each probe measures how far the wall actually is, and
+  -- the drive follows from that distance and her speed towards it, so it is
+  -- continuous and falls to nothing when she is not approaching.
+  local speed = sqrt(fly.Velocity.X ^ 2 + fly.Velocity.Y ^ 2)
+  for _, probe in ipairs(CFG.wallProbes) do
     local a = agent.heading + probe / DEG
-    local ahead = pos + Vector(cos(a) * CFG.wallProbe, sin(a) * CFG.wallProbe)
-    if not room:IsPositionInRoom(ahead, 0) then
-      walls[#walls + 1] = probe
+    local ca, sa = cos(a), sin(a)
+    local hit = nil
+    local stride = CFG.wallRange / CFG.wallSteps
+    for step = 1, CFG.wallSteps do
+      local d = step * stride
+      if not room:IsPositionInRoom(pos + Vector(ca * d, sa * d), 0) then
+        hit = d
+        break
+      end
+    end
+    if hit then
+      -- her speed along this probe is what makes the surface expand
+      local closing = fly.Velocity.X * ca + fly.Velocity.Y * sa
+      if closing < 0.0 then closing = 0.0 end
+      walls[#walls + 1] = { az = probe, dist = hit, closing = closing }
     end
   end
 
