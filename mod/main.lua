@@ -25,6 +25,7 @@ local Sensory = include("fly_brain.sensory")
 local Motor   = include("fly_brain.motor")
 local Agent   = include("fly_brain.agent")
 local Hud     = include("fly_brain.hud")
+local Valence = include("fly_brain.valence")
 
 local ITEM = Isaac.GetItemIdByName("Connectome")
 local FLY_VARIANT = Isaac.GetEntityVariantByName("Connectome Fly")
@@ -55,6 +56,11 @@ local CFG = {
   leashSpeed     = 3.2,    -- a game constraint, not biology -- see README
   damageCooldown = 12,     -- frames between hits on the same enemy
   contactReach   = 13.0,
+  feedReach      = 26.0,   -- px; close enough to be riding an enemy
+  feedCling      = 0.30,   -- how hard she holds on to its centre
+  burnRadius     = 26.0,   -- px; close enough to fire to learn it hurts
+  hitRadius      = 9.0,    -- px; close enough to a shot to count as hit
+  harmCooldown   = 20,     -- frames before she can be hurt again
 
   -- Where the boundary between the small-object cells and the looming cells
   -- sits.  Below smallDeg of angular size, and expanding slower than
@@ -63,6 +69,48 @@ local CFG = {
   loomDeg        = 18.0,
   expansionDeg   = 0.40,
 }
+
+---------------------------------------------------------------------------
+-- what she has learned.  One fly, one bar, kept for the run.
+---------------------------------------------------------------------------
+local valence = Valence.new()
+
+-- Pain has to reach her through her eyes, not through a scripted knockback:
+-- when something hurts her, it is presented as a maximal looming stimulus from
+-- the direction it came from, and the escape that follows is computed by the
+-- connectome like any other.  This holds that bearing for a few frames.
+local pain = { az = 0.0, frames = 0 }
+
+local function hurt(kind, key, azimuth)
+  Valence.punish(valence, kind, key)
+  pain.az = azimuth or 0.0
+  pain.frames = 12
+end
+
+local function saveValence()
+  local ok, json = pcall(require, "json")
+  if ok and json then mod:SaveData(json.encode(Valence.serialise(valence))) end
+end
+
+local function loadValence()
+  if not mod:HasData() then return end
+  local ok, json = pcall(require, "json")
+  if not ok or not json then return end
+  local decoded
+  if pcall(function() decoded = json.decode(mod:LoadData()) end) then
+    Valence.restore(valence, decoded)
+  end
+end
+
+-- Enemies the fly hurt, so a kill can be credited to her rather than to Isaac.
+local damagedByFly = {}
+
+-- A coarse name for a thing, so she can remember this *kind* of danger rather
+-- than this one instance of it.
+local function memoryKey(ent)
+  if not ent then return nil end
+  return tostring(ent.Type) .. "." .. tostring(ent.Variant)
+end
 
 ---------------------------------------------------------------------------
 -- one shared network, one brain per fly
@@ -221,7 +269,8 @@ local function buildPercepts(fly, agent, player)
         tracked[#tracked + 1] = { az = az, angSize = angSize, weight = 1.35 }
       elseif item.kind == "fire" then
         threats[#threats + 1] = { az = az, angSize = angSize,
-                                  closing = 3.0, weight = 1.5 }
+                                  closing = 3.0, weight = 1.5,
+                                  learned = Valence.threatScale(valence, "fire") }
       else
         objects[#objects + 1] = { az = az, angSize = angSize }
       end
@@ -250,6 +299,15 @@ local function buildPercepts(fly, agent, player)
         local radius = ent.Size > 0 and ent.Size or 8.0
         local az = relAzimuth(hx, hy, d.X, d.Y)
         local angSize = 2.0 * atan(radius / dist) * DEG
+        local key = memoryKey(ent)
+
+        -- An enemy is also something to chase, on the same LC9/LC10 cells a
+        -- fly tracks another fly with.  How much it is worth there is her
+        -- nerve, so a frightened fly hardly notices and a bold one hunts.
+        if ent:IsVulnerableEnemy() then
+          tracked[#tracked + 1] = { az = az, angSize = angSize,
+                                    weight = 1.0, prey = true }
+        end
         if isObject then
           objects[#objects + 1] = { az = az, angSize = angSize }
         else
@@ -279,7 +337,9 @@ local function buildPercepts(fly, agent, player)
           if loomness > 0.02 then
             threats[#threats + 1] = { az = az, angSize = angSize,
                                       closing = closing,
-                                      weight = weight * loomness }
+                                      weight = weight * loomness,
+                                      prey = ent:IsVulnerableEnemy(),
+                                      learned = Valence.threatScale(valence, key) }
           end
           if loomness < 0.98 then
             objects[#objects + 1] = { az = az,
@@ -319,6 +379,14 @@ local function buildPercepts(fly, agent, player)
     end
   end
 
+  -- Whatever just hurt her, presented as the biggest thing she can see coming
+  -- straight at her.  The flight that follows is the connectome's, not mine.
+  if pain.frames > 0 then
+    threats[#threats + 1] = { az = pain.az, angSize = 120.0,
+                              closing = 14.0, weight = 2.2 }
+    pain.frames = pain.frames - 1
+  end
+
   return { tracked = tracked, threats = threats,
            objects = objects, walls = walls }
 end
@@ -326,8 +394,37 @@ end
 ---------------------------------------------------------------------------
 -- movement + contact damage
 ---------------------------------------------------------------------------
+-- The enemy she is currently on, if any.
+local function preyUnderFly(fly, reach)
+  local best, bestD = nil, reach
+  for _, ent in ipairs(Isaac.GetRoomEntities()) do
+    if ent:IsVulnerableEnemy() then
+      local d = ent.Position:Distance(fly.Position) - ent.Size
+      if d < bestD then best, bestD = ent, d end
+    end
+  end
+  return best
+end
+
 local function applyMovement(fly, agent, player)
   local vx, vy = agent.vx, agent.vy
+
+  -- Riding.  Deciding to stay on the thing is the agent's -- see the feeding
+  -- rule in agent.lua.  Actually going where it goes is not a decision at all,
+  -- it is what being attached to a moving animal means, so it is done here.
+  if agent.feeding then
+    local prey = preyUnderFly(fly, CFG.feedReach)
+    if prey then
+      local d = prey.Position - fly.Position
+      vx = prey.Velocity.X + d.X * CFG.feedCling
+      vy = prey.Velocity.Y + d.Y * CFG.feedCling
+      fly.Velocity = Vector(vx, vy)
+      local sprite = fly:GetSprite()
+      sprite.Rotation = 0.0
+      if not sprite:IsPlaying("Idle") then sprite:Play("Idle", false) end
+      return
+    end
+  end
 
   -- Leash.  Not biology: an Isaac familiar has to stay useful to the player,
   -- and one room is not a fly's whole world.  Its strength depends only on
@@ -346,7 +443,11 @@ local function applyMovement(fly, agent, player)
   fly.Velocity = Vector(vx, vy)
 
   local sprite = fly:GetSprite()
-  sprite.Rotation = agent.heading * DEG + 90.0  -- the sprite is drawn facing up
+  -- She is drawn upright and stays upright, like the game's own flies.  The
+  -- heading the connectome computes still decides where she goes -- it just
+  -- does not turn the picture any more, so the sprite reads the same at every
+  -- bearing instead of lying on its side.
+  sprite.Rotation = 0.0
   -- settled on something: slow the wingbeat rather than hovering at full tilt
   local anim = (agent.landing or 0) > 0.6 and "Idle" or "Fly"
   if not sprite:IsPlaying(anim) then sprite:Play(anim, false) end
@@ -367,6 +468,47 @@ local function damageContact(fly, data, agent, player)
       elseif ent.Position:Distance(fly.Position) < reach + ent.Size then
         ent:TakeDamage(dmg, 0, EntityRef(fly), 0)
         data.hitCooldown[key] = CFG.damageCooldown
+        damagedByFly[key] = Game():GetFrameCount()
+        -- she hit it and flew away intact: that is what courage is made of
+        Valence.reward(valence, "hit", memoryKey(ent))
+      end
+    end
+  end
+end
+
+---------------------------------------------------------------------------
+-- what hurts her
+---------------------------------------------------------------------------
+-- Isaac familiars cannot be damaged, so being hurt has to be noticed rather
+-- than received.  Fire she has flown into, and projectiles that reach her,
+-- both count -- and both go in through the looming channel so the reaction is
+-- the connectome's.
+local function checkHarm(fly, agent)
+  local pos = fly.Position
+  local hx, hy = cos(agent.heading), sin(agent.heading)
+
+  for _, item in ipairs(scanGrid()) do
+    if item.kind == "fire" then
+      local d = item.pos - pos
+      if d:Length() < CFG.burnRadius then
+        hurt("burn", "fire", relAzimuth(hx, hy, d.X, d.Y))
+        return
+      end
+    end
+  end
+
+  for _, ent in ipairs(Isaac.GetRoomEntities()) do
+    if ent.Type == EntityType.ENTITY_FIREPLACE then
+      local d = ent.Position - pos
+      if d:Length() < CFG.burnRadius + ent.Size then
+        hurt("burn", "fire", relAzimuth(hx, hy, d.X, d.Y))
+        return
+      end
+    elseif ent.Type == EntityType.ENTITY_PROJECTILE then
+      local d = ent.Position - pos
+      if d:Length() < CFG.hitRadius + ent.Size then
+        hurt("shot", memoryKey(ent.SpawnerEntity), relAzimuth(hx, hy, d.X, d.Y))
+        return
       end
     end
   end
@@ -385,6 +527,11 @@ end
 
 function mod:onFamiliarInit(fly)
   fly.IsFollower = false
+  -- She has to be able to sit *on* an enemy to feed on it.  With a collision
+  -- class the engine shoves her back out the instant she touches one, which
+  -- looks exactly like a fly that circles the room and never lands a hit --
+  -- and it is invisible to the offline harness, which has no physics.
+  fly.EntityCollisionClass = EntityCollisionClass.ENTCOLL_NONE
   fly:GetSprite():Play("Fly", true)
 end
 
@@ -404,6 +551,12 @@ function mod:onFamiliarUpdate(fly)
   end
   local agent = data.agent
 
+  -- What she has learned does not touch the network or the encoding: it moves
+  -- three gains that decide which of two channels the connectome already
+  -- computes gets to win.  See fly_brain/valence.lua.
+  Valence.decay(valence)
+  for k, v in pairs(Valence.gains(valence)) do agent.cfg[k] = v end
+
   local percepts = buildPercepts(fly, agent, player)
 
   local t0 = Isaac.GetTime()
@@ -421,8 +574,37 @@ function mod:onFamiliarUpdate(fly)
   end
 
   agent:act()
+
+  -- Diagnostics: one line a second while a fly is alive, so a report of "she
+  -- is not attacking" arrives with the numbers that would explain it.
+  if TEST_MODE and Game():GetFrameCount() % 30 == 0 then
+    local g = Valence.gains(valence)
+    local nPrey, nearest = 0, 9999
+    for _, t in ipairs(percepts.tracked or {}) do
+      if t.prey then
+        nPrey = nPrey + 1
+        if t.angSize > 0 then nearest = math.min(nearest, t.angSize) end
+      end
+    end
+    Isaac.DebugString(string.format(
+      "[Connectome] courage %+.2f  hunt %.2f  threat %.2f  panic %.0f | "
+      .. "prey seen %d  huntSize %.0f deg  huntAz %+.0f | "
+      .. "escape %.1f Hz  feeding %s  land %.2f  speed %.1f",
+      valence.courage, g.huntWeight, g.preyThreat, g.escapeThreshold,
+      nPrey, agent.huntSize or 0, agent.huntAz or 0,
+      agent.out and agent.out.escape or 0,
+      tostring(agent.feeding), agent.landing or 0, agent.speed))
+  end
+
   applyMovement(fly, agent, player)
   damageContact(fly, data, agent, player)
+
+  data.harmCooldown = (data.harmCooldown or 0) - 1
+  if data.harmCooldown <= 0 then
+    local before = valence.courage
+    checkHarm(fly, agent)
+    if valence.courage ~= before then data.harmCooldown = CFG.harmCooldown end
+  end
 end
 
 ---------------------------------------------------------------------------
@@ -508,11 +690,32 @@ end
 ---------------------------------------------------------------------------
 -- compact read-out: bottom right, roughly the footprint of a HUD counter
 ---------------------------------------------------------------------------
+local C_BOLD = { 0.45, 0.90, 0.55 }
+
+-- The bar runs terrified -> bold, so it needs both ends coloured, and it is
+-- the thing worth looking at: everything below it is what the bar is doing.
+local function renderCourage(x, y, w)
+  local c = valence.courage
+  Hud.stext(Valence.mood(valence), x, y, 0.5,
+    c >= 0 and C_BOLD or C_FEAR)
+  Hud.stext(string.format("%+.2f", c), x + w - 20, y, 0.45, C_DIM)
+  Hud.thinBiBar(x, y + 8, w, 5, c, C_FEAR, C_BOLD)
+  -- a flash on the frame something taught her
+  if valence.lastEventAge < 14 then
+    local up = valence.lastEvent == "hit" or valence.lastEvent == "kill"
+    Hud.stext(up and "+" or "-", x + w * (0.5 + c * 0.5) - 2, y + 13, 0.5,
+      up and C_BOLD or C_FEAR)
+  end
+end
+
 local function renderCompact(agent)
   local o = agent.out
   local w = 104
   local x = Isaac.GetScreenWidth() - w - 14
-  local y = Isaac.GetScreenHeight() - 40
+  local y = Isaac.GetScreenHeight() - 52
+
+  renderCourage(x, y, w)
+  y = y + 18
 
   Hud.stext(string.format("%d neurons", net.n), x, y, 0.5, C_LABEL)
   Hud.stext(string.format("%d synapses", net.nnz), x + 52, y, 0.5, C_DIM)
@@ -534,6 +737,8 @@ local function renderCompact(agent)
 
   if agent.escaping then
     Hud.stext("FLEE", x + w - 18, y + 29, 0.45, C_FEAR, a)
+  elseif agent.feeding then
+    Hud.stext("ON IT", x + w - 22, y + 29, 0.45, C_BOLD)
   end
 end
 
@@ -542,6 +747,7 @@ end
 ---------------------------------------------------------------------------
 local function renderFull(agent, fly)
   local x, y = 24, 36
+  local bx, bw, bh = x + 78, 150, 9
   local o, d = agent.out, agent.drive
   local h = historyFor(GetPtrHash(fly))
   local active = agent.brain:activeCount()
@@ -549,12 +755,22 @@ local function renderFull(agent, fly)
   h.escape:push(o.escape)
   h.danger:push(d.loom)
 
-  Hud.rect(x - 8, y - 8, 300, 214, 0.04, 0.05, 0.07, 0.72)
+  Hud.rect(x - 8, y - 8, 300, 242, 0.04, 0.05, 0.07, 0.72)
   Hud.text(string.format("%d neurons / %d synapses", net.n, net.nnz),
     x, y, C_LABEL[1], C_LABEL[2], C_LABEL[3])
   y = y + 14
 
-  local bx, bw, bh = x + 78, 150, 9
+  local g = Valence.gains(valence)
+  Hud.text("LEARNED", x, y, 0.55, 0.8, 0.9)
+  y = y + 13
+  Hud.biBar(bx, y, bw, bh, valence.courage, "fear <-> courage",
+    C_FEAR, C_BOLD, Valence.mood(valence))
+  y = y + 13
+  Hud.text(string.format("  hunt %.2f   threat %.2f   panic at %.0f Hz%s",
+    g.huntWeight, g.preyThreat, g.escapeThreshold,
+    agent.feeding and "   RIDING" or ""), x, y, 0.5, 0.6, 0.65)
+  y = y + 17
+
   Hud.text("SENSING", x, y, 0.55, 0.8, 0.9)
   y = y + 13
   Hud.bar(bx, y, bw, bh, unit(d.loom, 165), "looming", C_LOOM)
@@ -629,7 +845,47 @@ function mod:onRender()
   end
 end
 
-function mod:onGameStarted()
+-- Anything the fly hurts is remembered, so the kill is credited to her and not
+-- to Isaac standing nearby.
+function mod:onEntityKill(entity)
+  local key = GetPtrHash(entity)
+  if damagedByFly[key] then
+    damagedByFly[key] = nil
+    Valence.reward(valence, "kill", memoryKey(entity))
+    saveValence()
+    return
+  end
+
+  -- Something she was afraid of died where she could see it, and she is still
+  -- here.  Worth less than doing it herself, but it is the only way a
+  -- frightened fly ever gets out of the hole -- see fly_brain/valence.lua.
+  --
+  -- This callback fires for everything that dies, tears and effects included,
+  -- so it has to be an actual hostile creature.  IsVulnerableEnemy is already
+  -- false by now -- it is dead -- so IsEnemy is the test that still holds.
+  if not (entity:ToNPC() and entity:IsEnemy()) then return end
+
+  for _, fly in ipairs(Isaac.FindByType(EntityType.ENTITY_FAMILIAR, FLY_VARIANT, -1)) do
+    if entity.Position:Distance(fly.Position) < CFG.visionRange then
+      Valence.reward(valence, "witness", memoryKey(entity))
+      saveValence()
+      return
+    end
+  end
+end
+
+function mod:onNewRoom()
+  damagedByFly = {}
+  pain.frames = 0
+end
+
+function mod:onGameStarted(isContinued)
+  if isContinued then
+    loadValence()
+  else
+    valence = Valence.new()
+    saveValence()
+  end
   if not TEST_MODE then return end
   local player = Isaac.GetPlayer(0)
   if player and not player:HasCollectible(ITEM) then
@@ -642,6 +898,9 @@ end
 loadNetwork()
 
 mod:AddCallback(ModCallbacks.MC_POST_GAME_STARTED, mod.onGameStarted)
+mod:AddCallback(ModCallbacks.MC_POST_ENTITY_KILL, mod.onEntityKill)
+mod:AddCallback(ModCallbacks.MC_POST_NEW_ROOM, mod.onNewRoom)
+mod:AddCallback(ModCallbacks.MC_PRE_GAME_EXIT, saveValence)
 mod:AddCallback(ModCallbacks.MC_EVALUATE_CACHE, mod.onCache)
 mod:AddCallback(ModCallbacks.MC_FAMILIAR_INIT, mod.onFamiliarInit, FLY_VARIANT)
 mod:AddCallback(ModCallbacks.MC_FAMILIAR_UPDATE, mod.onFamiliarUpdate, FLY_VARIANT)

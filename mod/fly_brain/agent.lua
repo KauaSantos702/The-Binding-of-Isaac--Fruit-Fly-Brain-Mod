@@ -7,8 +7,8 @@
   (tools/behaviour.lua) that checks the fly actually behaves like a fly.
 
   percepts = {
-    tracked  = { {az=, angSize=, weight=}, ... },   -- things worth going to
-    threats  = { {az=, angSize=, closing=, weight=, sizeGain=}, ... },
+    tracked  = { {az=, angSize=, weight=, prey=}, ... },  -- things worth going to
+    threats  = { {az=, angSize=, closing=, weight=, sizeGain=, prey=, learned=}, ... },
     objects  = { {az=, angSize=}, ... },
     walls    = { {az=, dist=, closing=}, ... },     -- surfaces ahead
   }
@@ -50,6 +50,15 @@ Agent.defaults = {
   landConeDeg     = 55.0,   -- must be roughly ahead to settle on
   landStop        = 0.96,   -- how much of the speed a full landing removes
 
+  -- Riding prey.  She latches on once it fills this much of her view, holds on
+  -- for feedFrames, then has had enough and spends disengageFrames getting
+  -- clear before the next run.  At 30 fps that is a six second maul and a
+  -- second and a half of backing off.
+  feedSizeDeg     = 55.0,
+  feedFrames      = 180,
+  disengageFrames = 45,
+  feedCalm        = 0.12,   -- how much the thing she is on still frightens her
+
   loomPeak        = 165.0,
   loomSigma       = 34.0,
   objectPeak      = 90.0,
@@ -77,6 +86,13 @@ Agent.defaults = {
   -- registers when she is flying parallel to it and nothing is expanding.
   -- Far below the 0.35 an object gets: a wall is scenery, not a predator.
   wallSizeGain    = 0.04,
+
+  -- The two ends of what she has learned.  An enemy sits on both the escape
+  -- channel and the pursuit channel at once, and which one wins is the whole
+  -- difference between prey and predator.  fly_brain/valence.lua moves these
+  -- from experience; on their own they are just the timid baseline.
+  huntWeight      = 0.45,   -- how much an enemy is worth to LC9/LC10
+  preyThreat      = 1.00,   -- and how much of a threat that same enemy is
 
   -- MeTu -> TuBu -> ER -> EPG, the sky-compass pathway.  Off by default.
   -- The pathway is real and measurably azimuth-selective as far as the ring
@@ -107,6 +123,7 @@ function Agent.new(BrainClass, Sensory, Motor, net, meta, cfg, seed)
   -- defined before the first act(), so anything reading the fly's velocity on
   -- frame one gets a number rather than nil
   self.vx, self.vy = 0.0, 0.0
+  self.feeding, self.feedFrames, self.satiatedFor = false, 0, 0
 
   -- peak drive requested on each sensory channel this frame, in Hz: what the
   -- fly is being shown, as opposed to what it decides
@@ -162,12 +179,17 @@ function Agent:sense(p)
   -- at once and they simply compete for the population.
   local primaryAz = p.landmarkAz
   self.trackSize, self.trackAz = 0.0, 0.0
+  self.huntSize, self.huntAz = 0.0, 0.0
   if p.tracked then
-    local best = -1.0
+    local best, bestPrey = -1.0, -1.0
     for i = 1, #p.tracked do
       local t = p.tracked[i]
       local sz = t.angSize or 14.0
-      local hz = cfg.barPeak * (t.weight or 1.0) * (sz / (sz + 12.0))
+      -- Prey is worth what her nerve says it is worth.  Frightened, an enemy
+      -- barely registers here and she runs; bold, it is the thing she wants.
+      local weight = t.weight or 1.0
+      if t.prey then weight = weight * cfg.huntWeight end
+      local hz = cfg.barPeak * weight * (sz / (sz + 12.0))
       if hz > 2.0 then
         s:stimulate(b, "bar", t.az, cfg.barSigma, hz)
         note("bar", hz)
@@ -175,10 +197,14 @@ function Agent:sense(p)
       end
       -- remember the target filling the most of the visual field, for the
       -- approach deceleration in act()
-      local salience = sz * (t.weight or 1.0)
+      local salience = sz * weight
       if salience > best then
         best = salience
         self.trackSize, self.trackAz = sz, t.az
+      end
+      if t.prey and salience > bestPrey then
+        bestPrey = salience
+        self.huntSize, self.huntAz = sz, t.az
       end
     end
   end
@@ -206,7 +232,20 @@ function Agent:sense(p)
   if p.threats then
     for i = 1, #p.threats do
       local t = p.threats[i]
-      local hz = loomRate(cfg, t.angSize, t.closing or 0.0, t.weight or 1.0, t.sizeGain)
+      -- The same enemy is on both channels; her nerve turns one down as it
+      -- turns the other up.  `learned` is what she remembers about this
+      -- particular thing -- fire that burned her once reads worse afterwards.
+      local weight = (t.weight or 1.0) * (t.learned or 1.0)
+      if t.prey then
+        weight = weight * cfg.preyThreat
+        -- Riding it, the thing fills her whole view, and left alone that
+        -- reads as the most enormous looming object she has ever seen -- she
+        -- would scare herself straight back off her own kill.  Escape
+        -- thresholds in flies are gated by what the animal is currently
+        -- doing, and an animal settled on its food is not fleeing it.
+        if self.feeding then weight = weight * cfg.feedCalm end
+      end
+      local hz = loomRate(cfg, t.angSize, t.closing or 0.0, weight, t.sizeGain)
       if hz > 2.0 then
         loomAt(t.az, hz)
         s:stimulate(b, "object", t.az, cfg.objectSigma, hz * 0.45)
@@ -290,8 +329,44 @@ function Agent:act()
   -- This does not come out of the connectome -- it belongs with the ventral
   -- nerve cord assumptions listed in motor.lua.  Without it the fly has a
   -- floor speed and can only circle a thing it is trying to settle on.
+  local fear = out.escape / cfg.escapeThreshold
+  if fear > 1.0 then fear = 1.0 end
+
+  -- Feeding.  A fly does not strafe its food: it lands on it and stays, then
+  -- has enough and lifts off.  Once prey fills `feedSizeDeg` of her view she
+  -- is on it, and she rides it until she is satiated, which is when the
+  -- approach starts again from the top.
+  --
+  -- The cone below does not apply here.  It stops her settling on something
+  -- beside her while she is still flying at it, but once she is actually on a
+  -- thing the bearing swings through every angle and the test would throw her
+  -- straight back off.
+  --
+  -- Satiation is not in the connectome -- the model has no notion of having
+  -- had enough -- so it sits here with the landing rule, for the same reason.
+  local onPrey = self.huntSize >= cfg.feedSizeDeg and fear < 0.9
+  if self.satiatedFor > 0 then
+    self.satiatedFor = self.satiatedFor - 1
+    self.feeding = false
+  elseif onPrey then
+    self.feedFrames = self.feedFrames + 1
+    self.feeding = true
+    if self.feedFrames >= cfg.feedFrames then
+      self.satiatedFor = cfg.disengageFrames
+      self.feedFrames = 0
+      self.feeding = false
+    end
+  else
+    self.feedFrames = self.feedFrames > 0 and self.feedFrames - 1 or 0
+    self.feeding = false
+  end
+
   local land = 0.0
-  if self.trackSize > cfg.landStartDeg then
+  if self.feeding then
+    land = 1.0
+  elseif self.satiatedFor > 0 then
+    land = 0.0                       -- she has had enough; let her get away
+  elseif self.trackSize > cfg.landStartDeg then
     land = (self.trackSize - cfg.landStartDeg)
            / (cfg.landFullDeg - cfg.landStartDeg)
     if land > 1.0 then land = 1.0 end
@@ -300,8 +375,6 @@ function Agent:act()
     if off < 0 then off = -off end
     if off > cfg.landConeDeg then land = 0.0 end
     -- and never while frightened
-    local fear = out.escape / cfg.escapeThreshold
-    if fear > 1.0 then fear = 1.0 end
     land = land * (1.0 - fear)
   end
   self.landing = land
