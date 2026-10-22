@@ -1,7 +1,9 @@
 .venv/
 fly-brain/
-tools/
+tools/lua.zip
+tools/lua53/
 data/*.tsv
 build/*.json
 build/*.npz
 __pycache__/
+ideiaslist.txt

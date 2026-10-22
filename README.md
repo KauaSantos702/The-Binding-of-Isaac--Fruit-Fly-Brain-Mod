@@ -13,6 +13,8 @@ descending neurons.
 Where the fly goes is whatever DNa02, DNp09, DNp01 and the rest happen to be
 doing.
 
+![The fly keeping its distance from a room of spiders, with the brain overlay in the corner](docs/images/gameplay.png)
+
 ```
   big or fast-expanding ──▶ LC4 / LPLC2 / LC6 / LPLC1  (looming detectors)
     monsters, tears, fire, walls, a moving Isaac
@@ -36,11 +38,17 @@ doing.
 Copy `mod/` into the Isaac mods folder as `fly-brain-connectome`, or run:
 
 ```sh
-sh tools/install.sh
+sh tools/install.sh                              # default Steam path on Windows
+ISAAC_MODS="/path/to/mods" sh tools/install.sh   # anywhere else
 ```
 
-Mods folder on this machine:
-`C:\Program Files (x86)\Steam\steamapps\common\The Binding of Isaac Rebirth\mods\`
+Default mods folders:
+
+| platform | path |
+|---|---|
+| Windows | `C:\Program Files (x86)\Steam\steamapps\common\The Binding of Isaac Rebirth\mods\` |
+| Linux | `~/.local/share/Steam/steamapps/common/The Binding of Isaac Rebirth/mods/` |
+| macOS | `~/Library/Application Support/Steam/steamapps/common/The Binding of Isaac Rebirth/mods/` |
 
 Enable it in the in-game mods menu. Requires Repentance or Repentance+; no
 other mods and no REPENTOGON.
@@ -49,6 +57,10 @@ other mods and no REPENTOGON.
 
 Pick up **Connectome** (Treasure Room, Boss Rush and Secret Room pools) and a
 fly appears. It damages enemies on contact, harder while it is escaping.
+
+| the familiar | the brain overlay |
+|---|---|
+| ![The Connectome fly next to Isaac](docs/images/fly-with-isaac.png) | ![The in-game overlay showing the fly's state, 2053 neurons and 83791 synapses](docs/images/overlay.png) |
 
 With the debug console (`--luadebug` or the console-enabling mod):
 
@@ -161,11 +173,59 @@ tools/
 every validation number, and the three corrections that were tried (one worked
 a little, one did nothing, one made things worse).
 
+## Rebuilding the connectome
+
+The mod ships pre-built; none of this is needed to play. To regenerate
+`mod/fly_brain/net_*.lua` from the raw data:
+
+1. Clone [`eonsystemspbc/fly-brain`](https://github.com/eonsystemspbc/fly-brain)
+   into `fly-brain/` (it provides `data/2025_Completeness_783.csv` and
+   `data/2025_Connectivity_783.parquet`).
+2. Download `flywire_annotations.tsv` from
+   [`flyconnectome/flywire_annotations`](https://github.com/flyconnectome/flywire_annotations)
+   into `data/`.
+3. Install the Python dependencies and run the pipeline:
+
+```sh
+python -m venv .venv
+.venv/Scripts/python -m pip install -r requirements.txt   # .venv/bin/python on Linux/macOS
+
+python pipeline/build_circuit.py     # extract from FlyWire v783
+python pipeline/find_recruits.py     # whole-brain reference runs (slow, cached)
+python pipeline/compute_bias.py      # measure the lost input
+python pipeline/fit_bias.py          # fit k
+python pipeline/export_lua.py        # pack into mod/fly_brain/
+python pipeline/make_sprites.py      # sprites and .anm2
+```
+
+The headless Lua tests (`tools/bench.lua`, `tools/behaviour.lua`) need a
+stand-alone **Lua 5.3** interpreter, the same version Isaac embeds. The docs
+assume it lives in `tools/lua53/`, which is not committed; any `lua5.3` on your
+`PATH` works too. `docs/METHODS.md` §9 lists every validation command.
+
+## License
+
+The mod's code is released under the [MIT License](LICENSE).
+
+The connectome data packed into `mod/fly_brain/net_*.lua` is derived from
+FlyWire v783 and the FlyWire annotations; it remains subject to its original
+terms and must be credited to the sources below.
+
 ## Credits
 
 - **Connectome and whole-brain model** — [`eonsystemspbc/fly-brain`](https://github.com/eonsystemspbc/fly-brain),
-  implementing Shiu et al., *A leaky integrate-and-fire model based on the
-  connectome of the entire adult Drosophila brain*, Nature 2024.
-- **FlyWire v783** — Dorkenwald et al., 2024.
-- **Cell-type annotations** — Schlegel et al., 2024,
-  [`flyconnectome/flywire_annotations`](https://github.com/flyconnectome/flywire_annotations).
+  implementing Shiu et al., *A Drosophila computational brain model reveals
+  sensorimotor processing*, Nature 634, 210–219 (2024),
+  [doi:10.1038/s41586-024-07763-9](https://doi.org/10.1038/s41586-024-07763-9).
+  `pipeline/lif.py` is an independent numpy reimplementation of that model.
+- **FlyWire v783** — Dorkenwald et al., *Neuronal wiring diagram of an adult
+  brain*, Nature 634, 124–138 (2024),
+  [doi:10.1038/s41586-024-07558-y](https://doi.org/10.1038/s41586-024-07558-y).
+  See [flywire.ai](https://flywire.ai/).
+- **Cell-type annotations** — Schlegel et al., *Whole-brain annotation and
+  multi-connectome cell typing of Drosophila*, Nature 634, 139–152 (2024),
+  [doi:10.1038/s41586-024-07686-5](https://doi.org/10.1038/s41586-024-07686-5);
+  data from [`flyconnectome/flywire_annotations`](https://github.com/flyconnectome/flywire_annotations).
+
+*The Binding of Isaac* is by Edmund McMillen and Nicalis. This is an unofficial
+fan mod, not affiliated with or endorsed by them.
